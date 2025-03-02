@@ -42,6 +42,7 @@ from mesonbuild.compilers.mixins.gnu import GnuCompiler
 from mesonbuild.compilers.mixins.intel import IntelGnuLikeCompiler
 from mesonbuild.compilers.c import VisualStudioCCompiler, ClangClCCompiler
 from mesonbuild.compilers.cpp import VisualStudioCPPCompiler, ClangClCPPCompiler
+from mesonbuild.compilers.fortran import LlvmFlangFortranCompiler
 from mesonbuild.compilers import (
     detect_static_linker, detect_c_compiler, compiler_from_language,
     detect_compiler_for
@@ -1083,12 +1084,13 @@ class AllPlatformTests(BasePlatformTests):
         '''
         gnu = GnuCompiler
         clang = ClangCompiler
+        llvm_flang = LlvmFlangFortranCompiler
         intel = IntelGnuLikeCompiler
         msvc = (VisualStudioCCompiler, VisualStudioCPPCompiler)
         clangcl = (ClangClCCompiler, ClangClCPPCompiler)
         ar = linkers.ArLinker
         lib = linkers.VisualStudioLinker
-        langs = [('c', 'CC'), ('cpp', 'CXX')]
+        langs = [('fortran', 'FC'), ('c', 'CC'), ('cpp', 'CXX')]
         if not is_windows() and platform.machine().lower() != 'e2k':
             langs += [('objc', 'OBJC'), ('objcpp', 'OBJCXX')]
         testdir = os.path.join(self.unit_test_dir, '5 compiler detection')
@@ -1096,7 +1098,12 @@ class AllPlatformTests(BasePlatformTests):
         for lang, evar in langs:
             # Detect with evar and do sanity checks on that
             if evar in os.environ:
-                ecc = compiler_from_language(env, lang, MachineChoice.HOST)
+                try:
+                    ecc = compiler_from_language(env, lang, MachineChoice.HOST)
+                except EnvironmentException:
+                    # Omit Fortran tests where no compiler found
+                    if lang == 'fortran':
+                        continue
                 self.assertTrue(ecc.version)
                 elinker = detect_static_linker(env, ecc)
                 # Pop it so we don't use it for the next detection
@@ -1112,6 +1119,9 @@ class AllPlatformTests(BasePlatformTests):
                     self.assertIsInstance(elinker, lib)
                 elif 'clang' in ebase:
                     self.assertIsInstance(ecc, clang)
+                    self.assertIsInstance(elinker, ar)
+                elif 'flang-new' in ebase:
+                    self.assertIsInstance(ecc, llvm_flang)
                     self.assertIsInstance(elinker, ar)
                 elif ebase.startswith('ic'):
                     self.assertIsInstance(ecc, intel)
@@ -1139,15 +1149,15 @@ class AllPlatformTests(BasePlatformTests):
             if isinstance(cc, clangcl):
                 self.assertIsInstance(linker, lib)
                 self.assertIsInstance(cc.linker, linkers.ClangClDynamicLinker)
-            if isinstance(cc, clang):
+            if isinstance(cc, (clang, llvm_flang)):
                 self.assertIsInstance(linker, ar)
                 if is_osx():
                     self.assertIsInstance(cc.linker, linkers.AppleDynamicLinker)
                 elif is_windows():
-                    # This is clang, not clang-cl. This can be either an
+                    # This is clang or LLVM flang, not clang-cl. This can be either an
                     # ld-like linker of link.exe-like linker (usually the
                     # former for msys2, the latter otherwise)
-                    self.assertIsInstance(cc.linker, (linkers.MSVCDynamicLinker, linkers.GnuLikeDynamicLinkerMixin))
+                    self.assertIsInstance(cc.linker, (linkers.VisualStudioLikeLinkerMixin, linkers.GnuLikeDynamicLinkerMixin))
                 elif is_sunos():
                     self.assertIsInstance(cc.linker, (linkers.SolarisDynamicLinker, linkers.GnuLikeDynamicLinkerMixin))
                 else:
