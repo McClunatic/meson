@@ -614,6 +614,23 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
                           '3': default_warn_args,
                           'everything': default_warn_args}
 
+    def get_compiler_check_args(self, mode: CompileCheckMode) -> T.List[str]:
+        # LLVM Flang currently does not currently accept -Werror specifiers,
+        # e.g. -Werror=unknown-warning-option. Invocation with such arguments
+        # produces:
+        #   error: Only `-Werror` is supported currently.
+        # Compiler functionality tests would produce false negatives with
+        # -Werror specifiers. Filter them out.
+        # Relevant issue: https://github.com/llvm/llvm-project/issues/89888
+        myargs: T.List[str] = []
+        for arg in super().get_compiler_check_args(mode):
+            if arg.startswith('-Werror'):
+                if '-Werror' not in myargs:
+                    myargs.append('-Werror')
+            else:
+                myargs.append(arg)
+        return myargs
+
     def get_colorout_args(self, colortype: str) -> T.List[str]:
         # not yet supported, see https://github.com/llvm/llvm-project/issues/89888
         return []
